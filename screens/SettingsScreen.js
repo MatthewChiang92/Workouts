@@ -21,6 +21,8 @@ import {
   commonStyles, 
   normalize 
 } from '../styles/globalStyles';
+import { useWeightUnit } from '../contexts/WeightUnitContext';
+import { WEIGHT_UNITS } from '../lib/weightUtils';
 
 // Import the database functions from App.js
 import { saveRoutinesToDB, loadRoutinesFromDB } from '../App';
@@ -36,6 +38,9 @@ export default function SettingsScreen({ navigation }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [username, setUsername] = useState('Loading...');
+  
+  // Weight unit preference hook
+  const { weightUnit, changeWeightUnit, isKg, isLbs } = useWeightUnit();
 
   useEffect(() => {
     // Fetch user email and username from auth metadata
@@ -328,6 +333,67 @@ ${JSON.stringify(routines, null, 2)}`;
         
         <View style={styles.section}>
           <View style={styles.card}>
+            <Text style={styles.cardTitle}>Preferences</Text>
+            
+            <View style={styles.preferenceRow}>
+              <View style={styles.preferenceInfo}>
+                <Text style={styles.preferenceLabel}>Weight Unit</Text>
+                <Text style={styles.preferenceDescription}>
+                  Choose your preferred unit for weights
+                </Text>
+              </View>
+              
+              <View style={styles.weightUnitToggle}>
+                <TouchableOpacity 
+                  style={[
+                    styles.unitButton, 
+                    isKg && styles.unitButtonActive
+                  ]}
+                  onPress={async () => {
+                    if (!isKg) {
+                      const success = await changeWeightUnit(WEIGHT_UNITS.KG);
+                      if (!success) {
+                        Alert.alert('Error', 'Failed to save weight unit preference');
+                      }
+                    }
+                  }}
+                >
+                  <Text style={[
+                    styles.unitButtonText,
+                    isKg && styles.unitButtonTextActive
+                  ]}>
+                    kg
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[
+                    styles.unitButton, 
+                    isLbs && styles.unitButtonActive
+                  ]}
+                  onPress={async () => {
+                    if (!isLbs) {
+                      const success = await changeWeightUnit(WEIGHT_UNITS.LBS);
+                      if (!success) {
+                        Alert.alert('Error', 'Failed to save weight unit preference');
+                      }
+                    }
+                  }}
+                >
+                  <Text style={[
+                    styles.unitButtonText,
+                    isLbs && styles.unitButtonTextActive
+                  ]}>
+                    lbs
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+        
+        <View style={styles.section}>
+          <View style={styles.card}>
             <Text style={styles.cardTitle}>About</Text>
             <Text style={styles.cardDescription}>
               Version 1.0.0
@@ -434,5 +500,51 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     flexShrink: 1,
     textAlign: 'right',
+  },
+  // Weight unit preference styles
+  preferenceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  preferenceInfo: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  preferenceLabel: {
+    fontSize: normalize(16),
+    color: colors.text.primary,
+    fontWeight: '500',
+    marginBottom: spacing.xs / 2,
+  },
+  preferenceDescription: {
+    fontSize: normalize(14),
+    color: colors.text.secondary,
+  },
+  weightUnitToggle: {
+    flexDirection: 'row',
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  unitButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: 'transparent',
+  },
+  unitButtonActive: {
+    backgroundColor: colors.button.accent,
+  },
+  unitButtonText: {
+    fontSize: normalize(14),
+    color: colors.text.secondary,
+    fontWeight: '500',
+  },
+  unitButtonTextActive: {
+    color: colors.text.primary,
+    fontWeight: '600',
   },
 }); 

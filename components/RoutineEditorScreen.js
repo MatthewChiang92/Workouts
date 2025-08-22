@@ -25,6 +25,8 @@ import {
 import ExerciseTypeModal from './ExerciseTypeModal';
 import AddStrengthExerciseModal from './AddStrengthExerciseModal';
 import AppHeader from './AppHeader';
+import { useWeightUnit } from '../contexts/WeightUnitContext';
+import { displayWeightWithUnit } from '../lib/weightUtils';
 
 const DAYS_OF_WEEK = [
   'Monday',
@@ -42,6 +44,9 @@ export default function RoutineEditorScreen({ navigation, route }) {
   console.log('RoutineEditorScreen rendered with routine:', routine?.name);
   
   const insets = useSafeAreaInsets();
+  
+  // Weight unit preference hook
+  const { weightUnit } = useWeightUnit();
   const isEditMode = !!routine;
   
   // Initialize state from routine if in edit mode
@@ -952,7 +957,7 @@ export default function RoutineEditorScreen({ navigation, route }) {
                                     <Text style={styles.exerciseName}>{exercise.name}</Text>
                                     <Text style={styles.exerciseDetails}>
                                       {exercise.type === 'strength' 
-                                        ? `${exercise.sets || '?'} sets • ${exercise.reps || '?'} reps • ${exercise.weight || '?'} lbs` 
+                                        ? `${exercise.sets || '?'} sets • ${exercise.reps || '?'} reps${displayWeightWithUnit(exercise.weight || '0', weightUnit) ? ` • ${displayWeightWithUnit(exercise.weight || '0', weightUnit)}` : ''}` 
                                         : `${exercise.duration || '?'} min • ${exercise.distance || '?'} km`}
                                     </Text>
                                   </View>

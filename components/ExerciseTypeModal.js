@@ -20,15 +20,17 @@ import {
   normalize,
   commonStyles,
 } from '../styles/globalStyles';
+import { useWeightUnit } from '../contexts/WeightUnitContext';
+import { formatWeight } from '../lib/weightUtils';
 
-// Fallback exercises when user doesn't have any previous exercises
+// Fallback exercises when user doesn't have any previous exercises (weights in kg)
 const fallbackExercises = [
-  { id: 'e1', name: 'Bench Press', type: 'strength', sets: '3', reps: '8-12', weight: '135' },
-  { id: 'e2', name: 'Squats', type: 'strength', sets: '3', reps: '8-12', weight: '185' },
-  { id: 'e3', name: 'Deadlifts', type: 'strength', sets: '3', reps: '8-12', weight: '225' },
-  { id: 'e4', name: 'Push-ups', type: 'strength', sets: '3', reps: '10-15', weight: 'body' },
-  { id: 'e5', name: 'Running', type: 'cardio', duration: '30', distance: '3', calories: '300' },
-  { id: 'e6', name: 'Cycling', type: 'cardio', duration: '45', distance: '10', calories: '400' },
+  { id: 'e1', name: 'Bench Press', type: 'strength', sets: '3', reps: '8-12', weight: '60' },
+  { id: 'e2', name: 'Squats', type: 'strength', sets: '3', reps: '8-12', weight: '80' },
+  { id: 'e3', name: 'Deadlifts', type: 'strength', sets: '3', reps: '5', weight: '100' },
+  { id: 'e4', name: 'Push-ups', type: 'strength', sets: '3', reps: '10-15', weight: '' },
+  { id: 'e5', name: 'Running', type: 'cardio', duration: '30', distance: '5', calories: '300' },
+  { id: 'e6', name: 'Cycling', type: 'cardio', duration: '45', distance: '15', calories: '400' },
 ];
 
 export default function ExerciseTypeModal({ visible, onClose, onSelectType, activeRoutine }) {
@@ -37,6 +39,9 @@ export default function ExerciseTypeModal({ visible, onClose, onSelectType, acti
   const [searchQuery, setSearchQuery] = useState('');
   const [previousExercises, setPreviousExercises] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
+  
+  // Weight unit preference hook
+  const { weightUnit } = useWeightUnit();
   
   // Log to debug
   console.log('ExerciseTypeModal visible:', visible);
@@ -214,8 +219,8 @@ export default function ExerciseTypeModal({ visible, onClose, onSelectType, acti
                       <Text style={styles.exerciseName}>{item.name}</Text>
                       <Text style={styles.exerciseDetails}>
                         {item.type === 'strength' 
-                          ? `${item.sets} sets • ${item.reps} reps • ${item.weight} ${item.weight === 'body' ? 'weight' : 'lbs'}` 
-                          : `${item.duration} min • ${item.distance} ${item.distance === '0' ? '' : 'miles'}`}
+                          ? `${item.sets} sets • ${item.reps} reps${formatWeight(item.weight, weightUnit) ? ` • ${formatWeight(item.weight, weightUnit)}` : ''}` 
+                          : `${item.duration} min • ${item.distance} ${item.distance === '0' ? '' : 'km'}`}
                       </Text>
                     </View>
                   </TouchableOpacity>

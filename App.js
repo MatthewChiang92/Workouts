@@ -41,6 +41,7 @@ import LoginScreen from './screens/LoginScreen';
 import SignupScreen from './screens/SignupScreen';
 import LiquidGlassTabBar from './components/LiquidGlassTabBar';
 import RoutineEditorScreen from './components/RoutineEditorScreen';
+import { WeightUnitProvider } from './contexts/WeightUnitContext';
 
 // Add this constant at the top of the file, after imports
 const DAYS_OF_WEEK = [
@@ -591,20 +592,22 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer theme={DarkTheme}>
-          {session && session.user ? (
-            <MainNavigator 
-              routines={routines}
-              setRoutines={setRoutines}
-              activeRoutineIdState={activeRoutineIdState}
-              setActiveRoutineIdState={setActiveRoutineIdState}
-              username={username}
-            />
-          ) : (
-            <AuthNavigator />
-          )}
-        </NavigationContainer>
-        <StatusBar style="light" />
+        <WeightUnitProvider>
+          <NavigationContainer theme={DarkTheme}>
+            {session && session.user ? (
+              <MainNavigator 
+                routines={routines}
+                setRoutines={setRoutines}
+                activeRoutineIdState={activeRoutineIdState}
+                setActiveRoutineIdState={setActiveRoutineIdState}
+                username={username}
+              />
+            ) : (
+              <AuthNavigator />
+            )}
+          </NavigationContainer>
+          <StatusBar style="light" />
+        </WeightUnitProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

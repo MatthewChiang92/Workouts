@@ -24,12 +24,20 @@ import {
   commonStyles,
 } from '../styles/globalStyles';
 import { Animated } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useWeightUnit } from '../contexts/WeightUnitContext';
+import { 
+  convertInputToStorageWeight, 
+  convertStorageToDisplayWeight, 
+  formatWeight 
+} from '../lib/weightUtils';
 
 const { width, height } = Dimensions.get('window');
 
 export default function AddStrengthExerciseModal({ visible, onClose, onSave, day, exercise, isEditing }) {
   console.log('AddStrengthExerciseModal rendered with visible =', visible);
+  
+  // Weight unit preference hook
+  const { weightUnit } = useWeightUnit();
   
   // Track visibility changes for debugging
   useEffect(() => {
@@ -52,6 +60,10 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
   
   // Animation value for popup
   const [animation] = useState(new Animated.Value(0));
+  
+  // Track if there are unsaved changes
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [initialValues, setInitialValues] = useState(null);
   
   // Add these state variables inside the component
   const [previousExercises, setPreviousExercises] = useState([]);
@@ -90,7 +102,10 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
           setReps(exercise.reps?.toString() || '12');
         }
         
-        setWeight(exercise.weight?.toString() || '0');
+        // Convert weight from storage (kg) to display unit for editing
+        const displayWeight = exercise.weight ? 
+          convertStorageToDisplayWeight(exercise.weight, weightUnit) : 0;
+        setWeight(displayWeight.toString());
         setTrackingType(exercise.trackingType || 'reps');
         
         // Only switch to custom mode if we're editing (not if just selecting from search)
@@ -102,10 +117,27 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
         setTimeout(() => {
           dropdownDisabled.current = false;
         }, 500);
+        
+        // Store initial values for change detection when editing
+        if (isEditing) {
+          const displayWeight = exercise.weight ? 
+            convertStorageToDisplayWeight(exercise.weight, weightUnit) : 0;
+          setInitialValues({
+            name: exercise.name || '',
+            sets: exercise.sets?.toString() || '3',
+            reps: exercise.reps?.toString() || '12',
+            weight: displayWeight.toString(),
+            notes: exercise.notes || ''
+          });
+        }
       } else {
         // Reset form for a new exercise
         resetForm();
+        setInitialValues(null);
       }
+      
+      // Reset unsaved changes flag
+      setHasUnsavedChanges(false);
       
       // Animate in
       Animated.spring(animation, {
@@ -145,6 +177,53 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
     }
   }, [exerciseName, previousExercises]);
 
+  // Check for unsaved changes
+  useEffect(() => {
+    if (!isEditing || !initialValues) {
+      setHasUnsavedChanges(false);
+      return;
+    }
+    
+    // Compare current values with initial values
+    const currentReps = isFixedReps ? reps : `${repsMin}-${repsMax}`;
+    const initialReps = initialValues.reps;
+    
+    const hasChanges = 
+      exerciseName.trim() !== initialValues.name ||
+      sets !== initialValues.sets ||
+      currentReps !== initialReps ||
+      weight !== initialValues.weight ||
+      notes !== initialValues.notes;
+    
+    setHasUnsavedChanges(hasChanges);
+  }, [exerciseName, sets, reps, repsMin, repsMax, weight, notes, isFixedReps, isEditing, initialValues]);
+
+  // Handle modal close with unsaved changes check
+  const handleClose = () => {
+    if (hasUnsavedChanges && isEditing) {
+      Alert.alert(
+        'Unsaved Changes',
+        'You have unsaved changes. Are you sure you want to close without saving?',
+        [
+          {
+            text: 'Keep Editing',
+            style: 'cancel',
+          },
+          {
+            text: 'Discard Changes',
+            style: 'destructive',
+            onPress: () => {
+              setHasUnsavedChanges(false);
+              onClose();
+            },
+          },
+        ]
+      );
+    } else {
+      onClose();
+    }
+  };
+
   const handleSave = () => {
     // Validate input
     if (!exerciseName.trim()) {
@@ -152,12 +231,16 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
       return;
     }
     
+    // Convert weight input to storage format (always kg) only when saving
+    const inputWeight = parseFloat(weight) || 0;
+    const storageWeight = convertInputToStorageWeight(inputWeight, weightUnit);
+    
     // Convert inputs to appropriate types
     const exerciseData = {
       name: exerciseName.trim(),
       sets: sets || '3',
       reps: isFixedReps ? (reps || '12') : `${repsMin || '8'}-${repsMax || '12'}`,
-      weight: weight || '0',
+      weight: storageWeight.toString(),
       notes: notes.trim(),
       type: 'strength',
       day: day,
@@ -166,6 +249,7 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
     };
     
     console.log('Saving exercise data:', exerciseData);
+    setHasUnsavedChanges(false); // Clear unsaved changes flag
     onSave(exerciseData);
   };
 
@@ -198,32 +282,24 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
     outputRange: [0, 1],
   });
 
-  // Add this function to load previous exercises
+  // Load previous exercises from Supabase
   const loadPreviousExercises = async () => {
     try {
-      const routinesJson = await AsyncStorage.getItem('routines');
-      if (routinesJson) {
-        const routines = JSON.parse(routinesJson);
-        
-        // Extract all unique exercise names
-        const uniqueExercises = [];
-        const exerciseNames = new Set();
-        
-        routines.forEach(routine => {
-          if (routine.exercises && routine.exercises.length > 0) {
-            routine.exercises.forEach(exercise => {
-              if (!exerciseNames.has(exercise.name)) {
-                exerciseNames.add(exercise.name);
-                uniqueExercises.push(exercise);
-              }
-            });
-          }
-        });
-        
-        setPreviousExercises(uniqueExercises);
-      }
+      // For now, use fallback exercises until we implement full Supabase integration
+      // This ensures the modal works while we develop the full feature (weights in kg)
+      const fallbackExercises = [
+        { id: 'e1', name: 'Bench Press', type: 'strength', sets: '3', reps: '8-12', weight: '60' },
+        { id: 'e2', name: 'Squats', type: 'strength', sets: '3', reps: '8-12', weight: '80' },
+        { id: 'e3', name: 'Deadlifts', type: 'strength', sets: '3', reps: '5', weight: '100' },
+        { id: 'e4', name: 'Push-ups', type: 'strength', sets: '3', reps: '10-15', weight: '' },
+        { id: 'e5', name: 'Pull-ups', type: 'strength', sets: '3', reps: '5-10', weight: '' },
+        { id: 'e6', name: 'Overhead Press', type: 'strength', sets: '3', reps: '8-10', weight: '40' },
+      ];
+      
+      setPreviousExercises(fallbackExercises);
     } catch (error) {
       console.error('Error loading previous exercises:', error);
+      setPreviousExercises([]);
     }
   };
 
@@ -237,7 +313,9 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
       setExerciseName(exercise.name);
       setSets(exercise.sets?.toString() || '3');
       setReps(exercise.reps?.toString() || '12');
-      setWeight(exercise.weight?.toString() || '0');
+      // For fallback exercises, convert from kg storage to user's preferred unit
+      const displayWeight = convertStorageToDisplayWeight(exercise.weight || '0', weightUnit);
+      setWeight(displayWeight.toString());
       
       // Disable dropdown for a longer period
       dropdownDisabled.current = true;
@@ -264,7 +342,7 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
       visible={visible}
       transparent={true}
       animationType="slide"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.modalContainer}>
@@ -278,12 +356,14 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
             ]}
           >
             <View style={styles.header}>
-              <Text style={styles.title}>Add Strength Exercise</Text>
+              <Text style={styles.title}>
+                {isEditing ? 'Edit Strength Exercise' : 'Add Strength Exercise'}
+              </Text>
               <TouchableOpacity 
                 style={styles.closeButton}
                 onPress={() => {
                   console.log('Close button pressed');
-                  onClose();
+                  handleClose();
                 }}
               >
                 <Text style={styles.closeButtonText}>✕</Text>
@@ -297,6 +377,27 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
               placeholder="Exercise Name"
               placeholderTextColor="#666"
             />
+            
+            {/* Exercise suggestions dropdown */}
+            {showNameDropdown && filteredExercises.length > 0 && (
+              <View style={styles.dropdownContainer}>
+                <FlatList
+                  data={filteredExercises.slice(0, 5)} // Show max 5 suggestions
+                  keyExtractor={(item, index) => item.id || index.toString()}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity 
+                      style={styles.dropdownItem}
+                      onPress={() => handleSelectExercise(item)}
+                    >
+                      <Text style={styles.dropdownItemText}>{item.name}</Text>
+                      <Text style={styles.dropdownItemSubtext}>
+                        {item.sets} sets • {item.reps} reps{formatWeight(item.weight, weightUnit) ? ` • ${formatWeight(item.weight, weightUnit)}` : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            )}
             
             <View style={styles.toggleContainer}>
               <TouchableOpacity 
@@ -384,36 +485,63 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
                   </TouchableOpacity>
                 </View>
               </View>
-              <View style={styles.repsInputContainer}>
-                <TextInput
-                  style={styles.input}
-                  value={reps}
-                  onChangeText={setReps}
-                  keyboardType="numeric"
-                />
-                <Text style={styles.inputUnit}>reps</Text>
-              </View>
+              {isFixedReps ? (
+                <View style={styles.repsInputContainer}>
+                  <TextInput
+                    style={styles.input}
+                    value={reps}
+                    onChangeText={setReps}
+                    keyboardType="numeric"
+                    placeholder="12"
+                    placeholderTextColor="#666"
+                  />
+                  <Text style={styles.inputUnit}>reps</Text>
+                </View>
+              ) : (
+                <View style={styles.repsRangeContainer}>
+                  <View style={styles.repsRangeInputContainer}>
+                    <TextInput
+                      style={[styles.input, styles.rangeInput]}
+                      value={repsMin}
+                      onChangeText={setRepsMin}
+                      keyboardType="numeric"
+                      placeholder="8"
+                      placeholderTextColor="#666"
+                    />
+                    <Text style={styles.rangeSeparator}>-</Text>
+                    <TextInput
+                      style={[styles.input, styles.rangeInput]}
+                      value={repsMax}
+                      onChangeText={setRepsMax}
+                      keyboardType="numeric"
+                      placeholder="12"
+                      placeholderTextColor="#666"
+                    />
+                    <Text style={styles.inputUnit}>reps</Text>
+                  </View>
+                </View>
+              )}
             </View>
             
             <View style={styles.formGroup}>
-              <Text style={styles.inputLabel}>Weight (optional)</Text>
+              <Text style={styles.inputLabel}>Weight</Text>
               <View style={styles.weightInputContainer}>
                 <TextInput
                   style={styles.input}
                   value={weight}
                   onChangeText={setWeight}
-                  placeholder="Leave empty for bodyweight"
+                  placeholder=""
                   placeholderTextColor="#666"
                   keyboardType="numeric"
                 />
-                <Text style={styles.inputUnit}>kg</Text>
+                <Text style={styles.inputUnit}>{weightUnit}</Text>
               </View>
             </View>
             
             <View style={styles.footer}>
               <TouchableOpacity 
                 style={styles.backButton}
-                onPress={onClose}
+                onPress={handleClose}
               >
                 <Text style={styles.backButtonText}>←</Text>
               </TouchableOpacity>
@@ -421,7 +549,9 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
                 style={styles.addButton}
                 onPress={handleSave}
               >
-                <Text style={styles.addButtonText}>Add Exercise</Text>
+                <Text style={styles.addButtonText}>
+                  {isEditing ? 'Save Exercise' : 'Add Exercise'}
+                </Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -599,5 +729,45 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // Dropdown styles
+  dropdownContainer: {
+    backgroundColor: '#222',
+    borderRadius: 8,
+    marginBottom: 16,
+    maxHeight: 200,
+  },
+  dropdownItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  dropdownItemText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  dropdownItemSubtext: {
+    color: '#999',
+    fontSize: 14,
+  },
+  // Range input styles
+  repsRangeContainer: {
+    marginBottom: 0,
+  },
+  repsRangeInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rangeInput: {
+    flex: 0,
+    width: 60,
+    marginHorizontal: 4,
+  },
+  rangeSeparator: {
+    color: '#999',
+    fontSize: 18,
+    marginHorizontal: 8,
   },
 }); 
