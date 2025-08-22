@@ -36,7 +36,9 @@ const DAYS_OF_WEEK = [
   'Sunday'
 ];
 
-export default function RoutineEditorScreen({ routine = null, onSave, onCancel, onDelete }) {
+export default function RoutineEditorScreen({ navigation, route }) {
+  // Get props from navigation params if available, otherwise use direct props
+  const { routine = null, onSave, onCancel, onDelete } = route?.params || {};
   console.log('RoutineEditorScreen rendered with routine:', routine?.name);
   
   const insets = useSafeAreaInsets();
@@ -146,14 +148,22 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
         const exerciseDay = exercise.day || 'Monday';
         
         if (exercisesByDay[exerciseDay]) {
-          // Create a clean copy of the exercise
+          // Create a clean copy of the exercise with normalized data types
           const exerciseCopy = { 
             ...exercise,
             // Ensure essential properties exist
             id: exercise.id || `${Date.now()}-${Math.floor(Math.random() * 10000)}`,
             name: exercise.name || 'Unnamed Exercise',
             day: exerciseDay,
-            routineId: routine.id
+            routineId: routine.id,
+            // Normalize numeric fields to strings to match form inputs
+            sets: String(exercise.sets || '3'),
+            reps: String(exercise.reps || '10'),
+            weight: String(exercise.weight || '0'),
+            // Ensure other fields exist
+            type: exercise.type || 'strength',
+            isCompleted: exercise.isCompleted || false,
+            isPR: exercise.isPR || false
           };
           
           // Add to the appropriate day
@@ -186,84 +196,89 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
 
   // Track if any changes have been made
   const [hasChanges, setHasChanges] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  
+  // Store initial state snapshot for comparison
+  const [initialSnapshot, setInitialSnapshot] = useState(null);
 
   // First, add a new state variable to track the exercise being edited
   const [editingExercise, setEditingExercise] = useState(null);
 
-  // Update hasChanges whenever routine data changes
+  // Mark initial load as complete after component mounts and take snapshot
   useEffect(() => {
-    if (routine) {
-      const originalName = routine.name;
-      const originalTrainingDays = routine.trainingDays?.toString() || '1';
-      const originalRestDays = routine.restDays?.toString() || '1';
+    const timer = setTimeout(() => {
+      // Take a snapshot of the initial state
+      const snapshot = {
+        name: name,
+        trainingDays: trainingDays,
+        restDays: restDays,
+        exercises: JSON.parse(JSON.stringify(exercises)), // Deep copy
+        restDaysConfig: { ...restDaysConfig }
+      };
       
-      const hasNameChanged = name !== originalName;
-      const hasTrainingDaysChanged = trainingDays !== originalTrainingDays;
-      const hasRestDaysChanged = restDays !== originalRestDays;
-      
-      // Count total current exercises (only from non-rest days)
-      let currentExerciseCount = 0;
-      let exerciseDetails = [];
-      
-      DAYS_OF_WEEK.forEach(day => {
-        if (!restDaysConfig[day]) { // Only count exercises for training days
-          const dayExercises = exercises[day] || [];
-          currentExerciseCount += dayExercises.length;
-          
-          // Collect IDs for detailed comparison
-          dayExercises.forEach(ex => {
-            exerciseDetails.push({
-              id: ex.id,
-              name: ex.name,
-              day: day
-            });
-          });
-        }
-      });
-      
-      // Count original exercises
-      const originalExerciseCount = routine.exercises ? routine.exercises.length : 0;
-      
-      // Simple count comparison first
-      let hasExercisesChanged = currentExerciseCount !== originalExerciseCount;
-      
-      // If counts match, do a deeper comparison
-      if (!hasExercisesChanged && originalExerciseCount > 0) {
-        // Check if the exercises themselves have changed (different IDs, names, etc.)
-        const originalIds = new Set(routine.exercises.map(ex => ex.id));
-        const currentIds = new Set(exerciseDetails.map(ex => ex.id));
-        
-        // Check if the ID sets are different
-        const idDifference = [...originalIds].filter(id => !currentIds.has(id)).length +
-                             [...currentIds].filter(id => !originalIds.has(id)).length;
-        
-        if (idDifference > 0) {
-          console.log(`Exercise IDs differ: ${idDifference} differences`);
-          hasExercisesChanged = true;
-        }
-      }
-      
-      console.log('Change detection:', {
-        hasNameChanged,
-        hasTrainingDaysChanged,
-        hasRestDaysChanged,
-        originalExerciseCount,
-        currentExerciseCount,
-        hasExercisesChanged
-      });
-      
-      const hasAnyChanges = 
-        hasNameChanged || 
-        hasTrainingDaysChanged || 
-        hasRestDaysChanged ||
-        hasExercisesChanged;
-      
-      setHasChanges(hasAnyChanges);
+      setInitialSnapshot(snapshot);
+      setInitialLoadComplete(true);
+      console.log('Initial load complete, snapshot taken:', snapshot);
+    }, 500); // Increased delay to ensure all initial state is properly set
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Update hasChanges whenever routine data changes (only after initial load)
+  useEffect(() => {
+    // Don't check for changes until initial load is complete and we have a snapshot
+    if (!initialLoadComplete || !initialSnapshot) return;
+    
+    // Compare current state with initial snapshot
+    const hasNameChanged = name !== initialSnapshot.name;
+    const hasTrainingDaysChanged = trainingDays !== initialSnapshot.trainingDays;
+    const hasRestDaysChanged = restDays !== initialSnapshot.restDays;
+    
+    // Compare exercises by converting both to JSON strings for deep comparison
+    const currentExercisesJson = JSON.stringify(exercises);
+    const initialExercisesJson = JSON.stringify(initialSnapshot.exercises);
+    const hasExercisesChanged = currentExercisesJson !== initialExercisesJson;
+    
+    // Compare rest days config
+    const currentRestDaysJson = JSON.stringify(restDaysConfig);
+    const initialRestDaysJson = JSON.stringify(initialSnapshot.restDaysConfig);
+    const hasRestDaysConfigChanged = currentRestDaysJson !== initialRestDaysJson;
+    
+    console.log('Snapshot-based change detection:', {
+      hasNameChanged,
+      hasTrainingDaysChanged,
+      hasRestDaysChanged,
+      hasExercisesChanged,
+      hasRestDaysConfigChanged,
+      initialName: initialSnapshot.name,
+      currentName: name,
+      initialTrainingDays: initialSnapshot.trainingDays,
+      currentTrainingDays: trainingDays,
+      initialRestDays: initialSnapshot.restDays,
+      currentRestDays: restDays
+    });
+    
+    if (hasExercisesChanged) {
+      console.log('Exercise comparison details:');
+      console.log('Initial exercises JSON:', initialExercisesJson);
+      console.log('Current exercises JSON:', currentExercisesJson);
     }
-  }, [name, trainingDays, restDays, exercises, restDaysConfig, routine]);
+    
+    const hasAnyChanges = 
+      hasNameChanged || 
+      hasTrainingDaysChanged || 
+      hasRestDaysChanged ||
+      hasExercisesChanged ||
+      hasRestDaysConfigChanged;
+    
+    setHasChanges(hasAnyChanges);
+  }, [name, trainingDays, restDays, exercises, restDaysConfig, initialLoadComplete, initialSnapshot]);
 
   // When initializing restDaysConfig, count the days and update trainingDays/restDays
   useEffect(() => {
+    // Only update counts after initial load to avoid triggering change detection
+    if (!initialLoadComplete) return;
+    
     // Count training and rest days based on current config
     let trainingDayCount = 0;
     let restDayCount = 0;
@@ -280,8 +295,8 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
     setTrainingDays(trainingDayCount.toString());
     setRestDays(restDayCount.toString());
     
-    console.log(`Initial counts - Training: ${trainingDayCount}, Rest: ${restDayCount}`);
-  }, [restDaysConfig]); // Run this effect when restDaysConfig changes
+    console.log(`Updated counts - Training: ${trainingDayCount}, Rest: ${restDayCount}`);
+  }, [restDaysConfig, initialLoadComplete]); // Run this effect when restDaysConfig changes
 
   const toggleRestDay = (day) => {
     console.log(`Toggling rest day for ${day}`);
@@ -397,7 +412,7 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
     if (!exercise || !day) return; // Guard against undefined values
     
     const uniqueId = exercise.id || `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    const tempRoutineId = routine?.id || `temp-${Date.now()}`; // Create a temporary ID if none exists
+    // Don't set routineId for new routines - it will be set when saving
     
     console.log(`Adding exercise "${exercise.name}" to ${day} with ID: ${uniqueId}`);
     
@@ -407,8 +422,8 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
         [day]: [...(prev[day] || []), {
           ...exercise,
           id: uniqueId,
-          day: day,
-          routineId: tempRoutineId
+          day: day
+          // routineId will be set when saving to database
         }]
       };
       console.log(`${day} now has ${newExercises[day].length} exercises`);
@@ -445,36 +460,65 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
       isPR: false
     };
     
+    let actualChangeMade = false;
+    
     if (editingExercise) {
       // We're editing an existing exercise
       console.log(`Editing existing exercise ${editingExercise.id} in ${exercise.day}`);
       
-      setExercises(prev => {
-        const updatedExercises = { ...prev };
-        const dayExercises = [...updatedExercises[exercise.day]];
-        
-        // Find and replace the exercise
-        const index = dayExercises.findIndex(ex => ex.id === editingExercise.id);
-        if (index !== -1) {
-          // Preserve the ID of the original exercise
-          completeExercise.id = editingExercise.id;
-          completeExercise.day = exercise.day;
-          completeExercise.routineId = routine?.id || 'temp-id';
-          
-          dayExercises[index] = completeExercise;
-          console.log(`Updated exercise at index ${index}, new values:`, completeExercise);
-        } else {
-          console.error(`Could not find exercise with id ${editingExercise.id} to update`);
-        }
-        
-        updatedExercises[exercise.day] = dayExercises;
-        return updatedExercises;
+      // Check if there are actual changes by comparing key fields
+      // Convert to strings for comparison to handle number vs string differences
+      const hasNameChanged = (exercise.name || '').trim() !== (editingExercise.name || '').trim();
+      const hasSetsChanged = String(exercise.sets || '').trim() !== String(editingExercise.sets || '').trim();
+      const hasRepsChanged = String(exercise.reps || '').trim() !== String(editingExercise.reps || '').trim();
+      const hasWeightChanged = String(exercise.weight || '').trim() !== String(editingExercise.weight || '').trim();
+      const hasDayChanged = (exercise.day || '') !== (editingExercise.day || '');
+      
+      const hasActualChanges = hasNameChanged || hasSetsChanged || hasRepsChanged || hasWeightChanged || hasDayChanged;
+      
+      console.log('Exercise change detection:', {
+        hasNameChanged,
+        hasSetsChanged,
+        hasRepsChanged,
+        hasWeightChanged,
+        hasDayChanged,
+        hasActualChanges
       });
+      
+      if (hasActualChanges) {
+        actualChangeMade = true;
+        
+        setExercises(prev => {
+          const updatedExercises = { ...prev };
+          const dayExercises = [...updatedExercises[exercise.day]];
+          
+          // Find and replace the exercise
+          const index = dayExercises.findIndex(ex => ex.id === editingExercise.id);
+          if (index !== -1) {
+            // Preserve the ID of the original exercise
+            completeExercise.id = editingExercise.id;
+            completeExercise.day = exercise.day;
+            // routineId will be set when saving to database
+            
+            dayExercises[index] = completeExercise;
+            console.log(`Updated exercise at index ${index}, new values:`, completeExercise);
+          } else {
+            console.error(`Could not find exercise with id ${editingExercise.id} to update`);
+          }
+          
+          updatedExercises[exercise.day] = dayExercises;
+          return updatedExercises;
+        });
+      } else {
+        console.log('No changes detected in exercise, skipping update');
+      }
       
       // Reset editing state
       setEditingExercise(null);
     } else {
       // We're adding a new exercise
+      actualChangeMade = true;
+      
       if (selectedDay) {
         // Generate a unique ID
         const uniqueId = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -483,8 +527,8 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
         const exerciseWithId = { 
           ...completeExercise, 
           id: uniqueId,
-          day: selectedDay,
-          routineId: routine?.id || 'temp-id'
+          day: selectedDay
+          // routineId will be set when saving to database
         };
         
         console.log(`Adding new strength exercise "${exerciseWithId.name}" with ID: ${uniqueId} to ${selectedDay}`);
@@ -503,8 +547,13 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
       }
     }
     
-    // Set hasChanges to true to reflect that the routine has been modified
-    setHasChanges(true);
+    // Only set hasChanges to true if an actual change was made
+    if (actualChangeMade) {
+      setHasChanges(true);
+      console.log('Changes detected, setting hasChanges to true');
+    } else {
+      console.log('No changes detected, hasChanges remains unchanged');
+    }
     
     console.log('Closing strength exercise modal');
     setStrengthExerciseModalVisible(false);
@@ -673,8 +722,8 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
             ...exercise,
             id: exercise.id || `${Date.now()}-${Math.floor(Math.random() * 10000)}`,
             day: day,
-            routineId: routine?.id || `routine-${Date.now()}`,
             type: exercise.type || 'strength'
+            // routineId will be set by Supabase when saving
           };
           
           // Add default values for exercise properties
@@ -697,7 +746,8 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
     
     // Create the final routine data with accurate training/rest day counts
     const routineData = {
-      id: routine?.id || `routine-${Date.now()}`,
+      // Don't include ID for new routines - let Supabase generate it
+      ...(routine?.id && { id: routine.id }),
       name: name.trim(),
       trainingDays: trainingDayCount,
       restDays: restDayCount,
@@ -708,7 +758,10 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
     console.log(`Saving routine "${name}" with training days: ${trainingDayCount}, rest days: ${restDayCount}`);
     // Add detailed log before calling onSave
     console.log('Routine data being passed to onSave:', JSON.stringify(routineData, null, 2));
-    onSave(routineData);
+    if (onSave) {
+      onSave(routineData);
+    }
+    navigation.goBack();
   };
 
   // Add these at the top of your component
@@ -783,17 +836,30 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
         <AppHeader
           title={isEditMode ? 'Edit Routine' : 'Create Routine'}
           onBack={() => {
-            if (hasChanges) {
+            console.log('Back button pressed, hasChanges:', hasChanges, 'isEditMode:', isEditMode);
+            // Only show popup if there are actual changes that can be saved
+            const hasUnsavedChanges = hasChanges && (isEditMode || (!isEditMode && (name !== 'New Routine' || Object.values(exercises).some(dayExercises => dayExercises.length > 0))));
+            
+            if (hasUnsavedChanges) {
               Alert.alert(
                 "Unsaved Changes",
                 "You have unsaved changes. Are you sure you want to go back?",
                 [
                   { text: "Stay", style: "cancel" },
-                  { text: "Discard Changes", onPress: onCancel, style: "destructive" }
+                  { 
+                    text: "Discard Changes", 
+                    onPress: () => {
+                      if (onCancel) onCancel();
+                      navigation.goBack();
+                    }, 
+                    style: "destructive" 
+                  }
                 ]
               );
             } else {
-              onCancel();
+              console.log('No unsaved changes, going back');
+              if (onCancel) onCancel();
+              navigation.goBack();
             }
           }}
         />
@@ -964,7 +1030,8 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
                         onPress: () => {
                           if (onDelete && routine?.id) {
                             console.log('Calling onDelete with ID:', routine.id);
-                            onDelete(routine.id); 
+                            onDelete(routine.id);
+                            navigation.goBack();
                           } else {
                             console.error('onDelete function or routine ID missing!');
                             Alert.alert('Error', 'Could not delete routine.');
@@ -986,17 +1053,24 @@ export default function RoutineEditorScreen({ routine = null, onSave, onCancel, 
               style={[
                 styles.saveButton, 
                 isEditMode && styles.updateButton,
-                hasChanges && styles.saveButtonWithChanges
+                hasChanges && styles.saveButtonWithChanges,
+                !hasChanges && isEditMode && styles.saveButtonDisabled
               ]}
               onPress={() => {
                 console.log('Save button pressed, hasChanges:', hasChanges);
-                handleSave();
+                if (hasChanges || !isEditMode) {
+                  handleSave();
+                } else {
+                  console.log('No changes to save');
+                }
               }}
+              disabled={isEditMode && !hasChanges}
             >
-              <Text style={styles.saveButtonText}>
-                {isEditMode 
-                  ? (hasChanges ? 'Save Changes' : 'Update Routine') 
-                  : 'Save Routine'}
+              <Text style={[
+                styles.saveButtonText,
+                !hasChanges && isEditMode && styles.saveButtonTextDisabled
+              ]}>
+                {isEditMode ? 'Save Changes' : 'Save Routine'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1230,10 +1304,17 @@ const styles = StyleSheet.create({
   saveButtonWithChanges: {
     backgroundColor: '#5cb85c', // Green color to indicate changes are ready to save
   },
+  saveButtonDisabled: {
+    backgroundColor: '#333', // Darker gray for disabled state
+    opacity: 0.6,
+  },
   saveButtonText: {
     color: colors.text.primary,
     fontSize: normalize(16),
     fontWeight: 'bold',
+  },
+  saveButtonTextDisabled: {
+    color: colors.text.secondary,
   },
   backButton: {
     marginBottom: spacing.sm,

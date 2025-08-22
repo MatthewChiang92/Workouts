@@ -1,4 +1,5 @@
 import 'react-native-gesture-handler';
+import 'react-native-url-polyfill/auto';
 import { StatusBar } from 'expo-status-bar';
 import {
   StyleSheet,
@@ -29,7 +30,7 @@ import {
 } from './styles/globalStyles';
 import { format, startOfWeek, addDays } from 'date-fns';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { NavigationContainer, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme, getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React from 'react';
@@ -38,6 +39,8 @@ import { supabase } from './lib/supabaseClient';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LoginScreen from './screens/LoginScreen';
 import SignupScreen from './screens/SignupScreen';
+import LiquidGlassTabBar from './components/LiquidGlassTabBar';
+import RoutineEditorScreen from './components/RoutineEditorScreen';
 
 // Add this constant at the top of the file, after imports
 const DAYS_OF_WEEK = [
@@ -300,6 +303,7 @@ function MainApp({ navigation, routines, setRoutines, activeRoutineIdState, user
 // Create both navigators
 const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
+const RoutinesStack = createNativeStackNavigator();
 
 // Auth Navigator
 function AuthNavigator() {
@@ -313,6 +317,35 @@ function AuthNavigator() {
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="Signup" component={SignupScreen} />
     </AuthStack.Navigator>
+  );
+}
+
+// Routines Stack Navigator
+function RoutinesNavigator({ routines, setRoutines, setActiveRoutine, activeRoutineIdState, setActiveRoutineIdState }) {
+  return (
+    <RoutinesStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background }
+      }}
+    >
+      <RoutinesStack.Screen name="RoutinesList">
+        {props => (
+          <RoutinesScreenWrapper
+            {...props}
+            routines={routines}
+            setRoutines={setRoutines}
+            setActiveRoutine={setActiveRoutine}
+            activeRoutineIdState={activeRoutineIdState}
+            setActiveRoutineIdState={setActiveRoutineIdState}
+          />
+        )}
+      </RoutinesStack.Screen>
+      <RoutinesStack.Screen 
+        name="RoutineEditor" 
+        component={RoutineEditorScreen}
+      />
+    </RoutinesStack.Navigator>
   );
 }
 
@@ -361,30 +394,12 @@ function MainNavigator({ routines, setRoutines, activeRoutineIdState, setActiveR
 
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName;
-          
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Routines') {
-            iconName = focused ? 'list' : 'list-outline';
-          } else if (route.name === 'Settings') {
-            iconName = focused ? 'settings' : 'settings-outline';
-          }
-          
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: colors.button.accent,
-        tabBarInactiveTintColor: colors.text.secondary,
-        tabBarStyle: {
-          backgroundColor: colors.card,
-          borderTopWidth: 0,
-        },
+      tabBar={(props) => <LiquidGlassTabBar {...props} />}
+      screenOptions={{
         headerShown: false,
         lazy: false,
         unmountOnBlur: false,
-      })}
+      }}
     >
       <Tab.Screen name="Home">
         {props => (
@@ -397,9 +412,19 @@ function MainNavigator({ routines, setRoutines, activeRoutineIdState, setActiveR
           />
         )}
       </Tab.Screen>
-      <Tab.Screen name="Routines">
+      <Tab.Screen 
+        name="Routines"
+        options={({ route }) => {
+          const routeName = getFocusedRouteNameFromRoute(route) ?? 'RoutinesList';
+          console.log('Current route name in Routines tab:', routeName);
+          
+          return {
+            tabBarStyle: routeName === 'RoutineEditor' ? { display: 'none' } : undefined,
+          };
+        }}
+      >
         {props => (
-          <RoutinesScreenWrapper
+          <RoutinesNavigator
             {...props}
             routines={routines}
             setRoutines={setRoutines}
@@ -476,9 +501,11 @@ export default function App() {
 
       // --- Add Username Fetching --- 
       console.log('Extracting username from user metadata:', user.user_metadata);
-      if (user.user_metadata && user.user_metadata.username) {
-          setUsername(user.user_metadata.username);
-          console.log('Username set to:', user.user_metadata.username);
+      if (user.user_metadata && (user.user_metadata.username || user.user_metadata.Username)) {
+          // Check for both lowercase and uppercase Username
+          const fetchedUsername = user.user_metadata.username || user.user_metadata.Username;
+          setUsername(fetchedUsername);
+          console.log('Username set to:', fetchedUsername);
       } else {
           setUsername('User'); // Default if not found
           console.log("Username not found in metadata, defaulting to 'User'.");
@@ -588,6 +615,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+    paddingBottom: 120, // Add padding for floating tab bar
   },
   bottomNav: {
     flexDirection: 'row',
@@ -651,6 +679,29 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  restDayIndicator: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    alignItems: 'center',
+  },
+  restDayEmoji: {
+    fontSize: normalize(48),
+    marginBottom: spacing.sm,
+  },
+  restDayTitle: {
+    fontSize: normalize(24),
+    fontWeight: 'bold',
+    color: colors.text.primary,
+    marginBottom: spacing.xs,
+  },
+  restDaySubtitle: {
+    fontSize: normalize(16),
+    color: colors.text.secondary,
+    textAlign: 'center',
   },
   exerciseCard: {
     marginBottom: spacing.sm,
@@ -797,16 +848,6 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     marginBottom: spacing.md,
     alignItems: 'center',
-  },
-  restDayEmoji: {
-    fontSize: normalize(36),
-    marginBottom: spacing.sm,
-  },
-  restDayTitle: {
-    ...typography.title,
-    fontSize: normalize(24),
-    marginBottom: spacing.sm,
-    color: colors.button.accent,
   },
   restDayText: {
     color: colors.text.secondary,

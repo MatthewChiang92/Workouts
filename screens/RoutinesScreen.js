@@ -19,15 +19,14 @@ import {
   commonStyles, 
   normalize 
 } from '../styles/globalStyles';
-import RoutineEditorScreen from '../components/RoutineEditorScreen';
+// RoutineEditorScreen import removed - now handled by navigation
 import AppHeader from '../components/AppHeader';
 import { supabase } from '../lib/supabaseClient';
 
 // Fix the invalid hook call error
-export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine, activeRoutineIdState, setActiveRoutineIdState }) {
+export default function RoutinesScreen({ navigation, routines, setRoutines, setActiveRoutine, activeRoutineIdState, setActiveRoutineIdState }) {
   const insets = useSafeAreaInsets();
-  const [isCreatingRoutine, setIsCreatingRoutine] = useState(false);
-  const [editingRoutine, setEditingRoutine] = useState(null);
+  // Removed unused state variables - now using navigation
   const openSwipeableRef = useRef(null);
   const [sortedRoutines, setSortedRoutines] = useState([]);
   const animatedValues = useRef({}).current;
@@ -204,19 +203,41 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
       console.log('Routine has no exercises');
     }
     
-    // Make a deep copy of the routine to avoid reference issues
-    const routineToEdit = JSON.parse(JSON.stringify(routine));
+    // Make a deep copy of the routine with normalized data format to match RoutineEditorScreen expectations
+    const routineToEdit = {
+      ...routine,
+      // Ensure numeric fields are strings to match form inputs
+      trainingDays: routine.trainingDays || routine.training_days || 0,
+      restDays: routine.restDays || routine.rest_days || 7,
+      // Normalize exercises with consistent data types
+      exercises: routine.exercises ? routine.exercises.map(ex => ({
+        ...ex,
+        sets: String(ex.sets || '3'),
+        reps: String(ex.reps || '10'),
+        weight: String(ex.weight || '0'),
+        name: (ex.name || '').trim(),
+        day: ex.day || '',
+        type: ex.type || 'strength',
+        isCompleted: ex.isCompleted || false,
+        isPR: ex.isPR || false
+      })) : []
+    };
     
-    // Double-check the deep copy has the exercises
+    // Double-check the normalized copy has the exercises
     if (routineToEdit.exercises) {
-      console.log(`Deep copy has ${routineToEdit.exercises.length} exercises`);
+      console.log(`Normalized copy has ${routineToEdit.exercises.length} exercises`);
     } else {
-      console.warn('Deep copy is missing exercises property!');
-      // Initialize exercises as an empty array if missing
+      console.warn('Normalized copy is missing exercises property!');
       routineToEdit.exercises = [];
     }
     
-    setEditingRoutine(routineToEdit);
+    // Navigate to the editor screen with the routine data
+    navigation.navigate('RoutineEditor', {
+      routine: routineToEdit,
+      onSave: handleSaveRoutine,
+      onCancel: handleCancelEdit,
+      onDelete: handleDeleteRoutine
+    });
   };
 
   const handleSaveRoutine = async (updatedRoutine, isActiveParam = false) => {
@@ -232,9 +253,8 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
         exercises: updatedRoutine.exercises?.length || 0
       });
       console.log('Is active:', isActiveParam);
-      console.log('Is editing:', !!editingRoutine);
-
-      const isNewRoutine = !editingRoutine;
+      // Determine if this is a new routine based on whether routine has an ID
+      const isNewRoutine = !updatedRoutine.id;
       console.log('Is new routine:', isNewRoutine);
 
       // Get the current user
@@ -250,12 +270,12 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
       if (isNewRoutine) {
         // New routines always become active
         shouldBeActive = true;
-      } else {
-        // If editing, keep its original active status
-        // Check if the routine being edited was the active one
-        shouldBeActive = editingRoutine.id === activeRoutineIdState;
-      }
-      console.log(`Determined active status: isEditing=${!isNewRoutine}, wasActive=${!isNewRoutine ? editingRoutine.id === activeRoutineIdState : 'N/A'}, shouldBeActive=${shouldBeActive}`);
+              } else {
+          // If editing, keep its original active status
+          // Check if the routine being edited was the active one
+          shouldBeActive = updatedRoutine.id === activeRoutineIdState;
+        }
+        console.log(`Determined active status: isEditing=${!isNewRoutine}, wasActive=${!isNewRoutine ? updatedRoutine.id === activeRoutineIdState : 'N/A'}, shouldBeActive=${shouldBeActive}`);
 
       // Prepare routine data for Supabase
       const routineDataForSupabase = {
@@ -279,9 +299,9 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
           .eq('user_id', user.id);
 
         // Only add the 'neq' condition if we are editing an existing routine
-        if (!isNewRoutine && editingRoutine?.id) {
-             console.log(`Excluding routine ID ${editingRoutine.id} from deactivation.`);
-             deactivateQuery = deactivateQuery.neq('id', editingRoutine.id);
+        if (!isNewRoutine && updatedRoutine?.id) {
+             console.log(`Excluding routine ID ${updatedRoutine.id} from deactivation.`);
+             deactivateQuery = deactivateQuery.neq('id', updatedRoutine.id);
         } else {
           console.log('Deactivating all existing routines for user.');
         }
@@ -295,12 +315,12 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
       }
 
       // Update or create routine in Supabase
-      if (editingRoutine) {
-        console.log('Updating existing routine:', editingRoutine.id);
+      if (!isNewRoutine) {
+        console.log('Updating existing routine:', updatedRoutine.id);
         const { data, error } = await supabase
           .from('routines')
           .update(routineDataForSupabase)
-          .eq('id', editingRoutine.id)
+          .eq('id', updatedRoutine.id)
           .select()
           .single();
 
@@ -335,7 +355,7 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
         console.log(`Processing ${updatedRoutine.exercises.length} exercises...`);
         
         // Delete existing exercises if updating
-        if (editingRoutine) {
+        if (!isNewRoutine) {
           console.log('Deleting existing exercises...');
           const { error: deleteError } = await supabase
             .from('exercises')
@@ -409,8 +429,7 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
         setActiveRoutineIdState(savedRoutine.id);
       }
 
-      setEditingRoutine(null);
-      setIsCreatingRoutine(false);
+      // State management removed - using navigation
 
       console.log('===== FINISHED SAVING ROUTINE =====');
     } catch (error) {
@@ -421,8 +440,7 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
 
   const handleCancelEdit = () => {
     console.log('Cancelling edit');
-    setEditingRoutine(null);
-    setIsCreatingRoutine(false);
+    // No state to reset - navigation handles the back action
   };
 
   // Modified renderRoutineItem to use handleSetActiveRoutine
@@ -497,18 +515,7 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
     );
   };
 
-  // If editing or creating a routine, show the editor
-  if (isCreatingRoutine || editingRoutine) {
-    console.log('Rendering RoutineEditorScreen with routine:', editingRoutine?.name || 'new routine');
-    return (
-      <RoutineEditorScreen
-        routine={editingRoutine}
-        onSave={handleSaveRoutine}
-        onCancel={handleCancelEdit}
-        onDelete={handleDeleteRoutine}
-      />
-    );
-  }
+  // Removed conditional rendering - now using navigation
 
   return (
     <View style={styles.container}>
@@ -524,7 +531,12 @@ export default function RoutinesScreen({ routines, setRoutines, setActiveRoutine
           <Text style={styles.subheaderTitle}>All Routines</Text>
           <TouchableOpacity 
             style={styles.addRoutineButton}
-            onPress={() => setIsCreatingRoutine(true)}
+            onPress={() => navigation.navigate('RoutineEditor', {
+              routine: null,
+              onSave: handleSaveRoutine,
+              onCancel: handleCancelEdit,
+              onDelete: handleDeleteRoutine
+            })}
           >
             <Text style={styles.addRoutineButtonText}>+ Add Routine</Text>
           </TouchableOpacity>
@@ -554,6 +566,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+    paddingBottom: 120, // Add padding for floating tab bar
   },
   subheader: {
     paddingHorizontal: spacing.md,

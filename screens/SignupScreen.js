@@ -41,7 +41,7 @@ export default function SignupScreen({ navigation }) {
         options: {
           emailRedirectTo: 'workoutapp://login',
           data: {
-            Username: username.trim(),
+            username: username.trim(),
             email_confirm: true
           }
         }

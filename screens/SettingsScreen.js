@@ -55,12 +55,14 @@ export default function SettingsScreen({ navigation }) {
 
         // Get username from user metadata
         console.log('User metadata:', user.user_metadata);
-        if (user.user_metadata && user.user_metadata.username) {
-          setUsername(user.user_metadata.username);
-          console.log('Fetched username from metadata:', user.user_metadata.username);
+        if (user.user_metadata && (user.user_metadata.username || user.user_metadata.Username)) {
+          // Check for both lowercase and uppercase Username
+          const fetchedUsername = user.user_metadata.username || user.user_metadata.Username;
+          setUsername(fetchedUsername);
+          console.log('Fetched username from metadata:', fetchedUsername);
         } else {
           setUsername('Not set'); // Username not found in metadata
-          console.log('Username (lowercase) not found in user metadata.');
+          console.log('Username not found in user metadata.');
         }
 
       } catch (error) {
@@ -344,6 +346,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+    paddingBottom: 120, // Add padding for floating tab bar
   },
   scrollView: {
     flex: 1,
