@@ -27,6 +27,7 @@ import AddStrengthExerciseModal from './AddStrengthExerciseModal';
 import AppHeader from './AppHeader';
 import { useWeightUnit } from '../contexts/WeightUnitContext';
 import { displayWeightWithUnit } from '../lib/weightUtils';
+import { EXERCISE_MODES, getCustomSetsDisplayText } from '../lib/customSetsUtils';
 
 const DAYS_OF_WEEK = [
   'Monday',
@@ -161,7 +162,10 @@ export default function RoutineEditorScreen({ navigation, route }) {
             name: exercise.name || 'Unnamed Exercise',
             day: exerciseDay,
             routineId: routine.id,
-            // Normalize numeric fields to strings to match form inputs
+            // Preserve exercise mode and custom sets for custom mode exercises
+            exercise_mode: exercise.exercise_mode || EXERCISE_MODES.QUICK,
+            custom_sets: exercise.custom_sets || null,
+            // Normalize numeric fields to strings to match form inputs (only for quick mode)
             sets: String(exercise.sets || '3'),
             reps: String(exercise.reps || '10'),
             weight: String(exercise.weight || '0'),
@@ -733,9 +737,18 @@ export default function RoutineEditorScreen({ navigation, route }) {
           
           // Add default values for exercise properties
           if (completeExercise.type === 'strength') {
-            completeExercise.sets = completeExercise.sets || '3';
-            completeExercise.reps = completeExercise.reps || '10';
-            completeExercise.weight = completeExercise.weight || '0';
+            // Preserve custom sets mode and data
+            completeExercise.exercise_mode = completeExercise.exercise_mode || EXERCISE_MODES.QUICK;
+            
+            if (completeExercise.exercise_mode === EXERCISE_MODES.CUSTOM) {
+              // For custom mode, preserve custom_sets and don't set quick mode fields
+              completeExercise.custom_sets = completeExercise.custom_sets || [];
+            } else {
+              // For quick mode, set default quick mode fields
+              completeExercise.sets = completeExercise.sets || '3';
+              completeExercise.reps = completeExercise.reps || '10';
+              completeExercise.weight = completeExercise.weight || '0';
+            }
           } else if (completeExercise.type === 'cardio') {
             completeExercise.duration = completeExercise.duration || '30';
             completeExercise.distance = completeExercise.distance || '5';
@@ -818,6 +831,26 @@ export default function RoutineEditorScreen({ navigation, route }) {
   useEffect(() => {
     pan.setValue({ x: 0, y: 0 });
   }, [routine]);
+
+  // Helper function to get exercise display text
+  const getExerciseDisplayText = (exercise) => {
+    if (exercise.type === 'cardio') {
+      return `${exercise.duration || '?'} min • ${exercise.distance || '?'} km`;
+    }
+    
+    if (exercise.type === 'strength') {
+      // Check if this is a custom sets exercise
+      if (exercise.exercise_mode === EXERCISE_MODES.CUSTOM && exercise.custom_sets) {
+        return getCustomSetsDisplayText(exercise.custom_sets, weightUnit);
+      }
+      
+      // Default quick mode display
+      const weight = displayWeightWithUnit(exercise.weight || '0', weightUnit);
+      return `${exercise.sets || '?'} sets • ${exercise.reps || '?'} reps${weight ? ` • ${weight}` : ''}`;
+    }
+    
+    return 'Unknown exercise type';
+  };
 
   // Add a useEffect to monitor the modal visibility state
   useEffect(() => {
@@ -956,9 +989,7 @@ export default function RoutineEditorScreen({ navigation, route }) {
                                   <View style={styles.exerciseDetailsContainer}>
                                     <Text style={styles.exerciseName}>{exercise.name}</Text>
                                     <Text style={styles.exerciseDetails}>
-                                      {exercise.type === 'strength' 
-                                        ? `${exercise.sets || '?'} sets • ${exercise.reps || '?'} reps${displayWeightWithUnit(exercise.weight || '0', weightUnit) ? ` • ${displayWeightWithUnit(exercise.weight || '0', weightUnit)}` : ''}` 
-                                        : `${exercise.duration || '?'} min • ${exercise.distance || '?'} km`}
+                                      {getExerciseDisplayText(exercise)}
                                     </Text>
                                   </View>
                                   <View style={styles.exerciseActions}>

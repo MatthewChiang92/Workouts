@@ -30,6 +30,14 @@ import {
   convertStorageToDisplayWeight, 
   formatWeight 
 } from '../lib/weightUtils';
+import CustomSetsBuilder from './CustomSetsBuilder';
+import { 
+  EXERCISE_MODES, 
+  createDefaultCustomSets,
+  convertQuickToCustom,
+  convertCustomToQuick,
+  validateCustomSets 
+} from '../lib/customSetsUtils';
 
 const { width, height } = Dimensions.get('window');
 
@@ -57,6 +65,7 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
   const [repsMax, setRepsMax] = useState('');
   const [weight, setWeight] = useState(exercise?.weight?.toString() || '0');
   const [notes, setNotes] = useState(exercise?.notes || '');
+  const [customSets, setCustomSets] = useState([]);
   
   // Animation value for popup
   const [animation] = useState(new Animated.Value(0));
@@ -87,31 +96,47 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
         dropdownDisabled.current = true;
         
         setExerciseName(exercise.name || '');
-        setSets(exercise.sets?.toString() || '3');
         
-        // Handle rep ranges
-        if (exercise.reps && exercise.reps.includes('-')) {
-          // It's a range like "8-12"
-          setIsFixedReps(false);
-          const [min, max] = exercise.reps.split('-');
-          setRepsMin(min || '');
-          setRepsMax(max || '');
-        } else {
-          // It's a fixed value
-          setIsFixedReps(true);
-          setReps(exercise.reps?.toString() || '12');
-        }
+        // Check if this is a custom sets exercise
+        const isCustomMode = exercise.exercise_mode === EXERCISE_MODES.CUSTOM && exercise.custom_sets;
         
-        // Convert weight from storage (kg) to display unit for editing
-        const displayWeight = exercise.weight ? 
-          convertStorageToDisplayWeight(exercise.weight, weightUnit) : 0;
-        setWeight(displayWeight.toString());
-        setTrackingType(exercise.trackingType || 'reps');
-        
-        // Only switch to custom mode if we're editing (not if just selecting from search)
-        if (isEditing) {
+        if (isCustomMode) {
           setIsQuickAdd(false);
+          // Convert stored custom sets weights to display units
+          const displayCustomSets = exercise.custom_sets.map(set => ({
+            reps: set.reps?.toString() || '',
+            weight: set.weight ? convertStorageToDisplayWeight(set.weight, weightUnit).toString() : ''
+          }));
+          setCustomSets(displayCustomSets);
+        } else {
+          // Quick mode logic
+          setSets(exercise.sets?.toString() || '3');
+          
+          // Handle rep ranges
+          if (exercise.reps && exercise.reps.includes('-')) {
+            // It's a range like "8-12"
+            setIsFixedReps(false);
+            const [min, max] = exercise.reps.split('-');
+            setRepsMin(min || '');
+            setRepsMax(max || '');
+          } else {
+            // It's a fixed value
+            setIsFixedReps(true);
+            setReps(exercise.reps?.toString() || '12');
+          }
+          
+          // Convert weight from storage (kg) to display unit for editing
+          const displayWeight = exercise.weight ? 
+            convertStorageToDisplayWeight(exercise.weight, weightUnit) : 0;
+          setWeight(displayWeight.toString());
+          
+          // Only switch to custom mode if we're editing (not if just selecting from search)
+          if (isEditing) {
+            setIsQuickAdd(false);
+          }
         }
+        
+        setTrackingType(exercise.trackingType || 'reps');
         
         // Re-enable dropdown after a short delay
         setTimeout(() => {
@@ -120,15 +145,27 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
         
         // Store initial values for change detection when editing
         if (isEditing) {
-          const displayWeight = exercise.weight ? 
-            convertStorageToDisplayWeight(exercise.weight, weightUnit) : 0;
-          setInitialValues({
-            name: exercise.name || '',
-            sets: exercise.sets?.toString() || '3',
-            reps: exercise.reps?.toString() || '12',
-            weight: displayWeight.toString(),
-            notes: exercise.notes || ''
-          });
+          if (isCustomMode) {
+            const displayCustomSets = exercise.custom_sets.map(set => ({
+              reps: set.reps?.toString() || '',
+              weight: set.weight ? convertStorageToDisplayWeight(set.weight, weightUnit).toString() : ''
+            }));
+            setInitialValues({
+              name: exercise.name || '',
+              notes: exercise.notes || '',
+              customSets: displayCustomSets
+            });
+          } else {
+            const displayWeight = exercise.weight ? 
+              convertStorageToDisplayWeight(exercise.weight, weightUnit) : 0;
+            setInitialValues({
+              name: exercise.name || '',
+              sets: exercise.sets?.toString() || '3',
+              reps: exercise.reps?.toString() || '12',
+              weight: displayWeight.toString(),
+              notes: exercise.notes || ''
+            });
+          }
         }
       } else {
         // Reset form for a new exercise
@@ -185,18 +222,30 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
     }
     
     // Compare current values with initial values
-    const currentReps = isFixedReps ? reps : `${repsMin}-${repsMax}`;
-    const initialReps = initialValues.reps;
+    let hasChanges = false;
     
-    const hasChanges = 
-      exerciseName.trim() !== initialValues.name ||
-      sets !== initialValues.sets ||
-      currentReps !== initialReps ||
-      weight !== initialValues.weight ||
-      notes !== initialValues.notes;
+    if (isQuickAdd) {
+      const currentReps = isFixedReps ? reps : `${repsMin}-${repsMax}`;
+      const initialReps = initialValues.reps;
+      
+      hasChanges = 
+        exerciseName.trim() !== initialValues.name ||
+        sets !== initialValues.sets ||
+        currentReps !== initialReps ||
+        weight !== initialValues.weight ||
+        notes !== initialValues.notes;
+    } else {
+      // Custom mode - compare custom sets
+      const customSetsChanged = JSON.stringify(customSets) !== JSON.stringify(initialValues.customSets || []);
+      
+      hasChanges = 
+        exerciseName.trim() !== initialValues.name ||
+        notes !== initialValues.notes ||
+        customSetsChanged;
+    }
     
     setHasUnsavedChanges(hasChanges);
-  }, [exerciseName, sets, reps, repsMin, repsMax, weight, notes, isFixedReps, isEditing, initialValues]);
+  }, [exerciseName, sets, reps, repsMin, repsMax, weight, notes, customSets, isFixedReps, isQuickAdd, isEditing, initialValues]);
 
   // Handle modal close with unsaved changes check
   const handleClose = () => {
@@ -231,22 +280,50 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
       return;
     }
     
-    // Convert weight input to storage format (always kg) only when saving
-    const inputWeight = parseFloat(weight) || 0;
-    const storageWeight = convertInputToStorageWeight(inputWeight, weightUnit);
+    let exerciseData;
     
-    // Convert inputs to appropriate types
-    const exerciseData = {
-      name: exerciseName.trim(),
-      sets: sets || '3',
-      reps: isFixedReps ? (reps || '12') : `${repsMin || '8'}-${repsMax || '12'}`,
-      weight: storageWeight.toString(),
-      notes: notes.trim(),
-      type: 'strength',
-      day: day,
-      isCompleted: false,
-      isPR: false
-    };
+    if (!isQuickAdd) {
+      // Custom mode - validate and save custom sets
+      const validation = validateCustomSets(customSets);
+      if (!validation.valid) {
+        Alert.alert('Error', validation.error);
+        return;
+      }
+      
+      // Convert custom sets weights from display to storage format (kg)
+      const storageCustomSets = customSets.map(set => ({
+        reps: set.reps,
+        weight: set.weight ? convertInputToStorageWeight(parseFloat(set.weight) || 0, weightUnit).toString() : '0'
+      }));
+      
+      exerciseData = {
+        name: exerciseName.trim(),
+        exercise_mode: EXERCISE_MODES.CUSTOM,
+        custom_sets: storageCustomSets,
+        notes: notes.trim(),
+        type: 'strength',
+        day: day,
+        isCompleted: false,
+        isPR: false
+      };
+    } else {
+      // Quick mode - convert weight input to storage format (always kg)
+      const inputWeight = parseFloat(weight) || 0;
+      const storageWeight = convertInputToStorageWeight(inputWeight, weightUnit);
+      
+      exerciseData = {
+        name: exerciseName.trim(),
+        exercise_mode: EXERCISE_MODES.QUICK,
+        sets: sets || '3',
+        reps: isFixedReps ? (reps || '12') : `${repsMin || '8'}-${repsMax || '12'}`,
+        weight: storageWeight.toString(),
+        notes: notes.trim(),
+        type: 'strength',
+        day: day,
+        isCompleted: false,
+        isPR: false
+      };
+    }
     
     console.log('Saving exercise data:', exerciseData);
     setHasUnsavedChanges(false); // Clear unsaved changes flag
@@ -264,6 +341,7 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
     setRepsMax('');
     setWeight('0');
     setNotes('');
+    setCustomSets([]);
     
     // Reset dropdown state without disabling it
     dropdownDisabled.current = false;
@@ -330,6 +408,8 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
   };
 
   const handleToggleAddType = (isQuick) => {
+    console.log('Toggling add type to:', isQuick ? 'Quick' : 'Custom');
+    console.log('Current customSets:', customSets);
     setIsQuickAdd(isQuick);
   };
 
@@ -425,118 +505,131 @@ export default function AddStrengthExerciseModal({ visible, onClose, onSave, day
             
             <Text style={styles.sectionTitle}>Details</Text>
             
-            <View style={styles.trackingTypeContainer}>
-              <TouchableOpacity 
-                style={[
-                  styles.trackingTypeButton, 
-                  trackingType === 'reps' && styles.trackingTypeButtonActive,
-                  { borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }
-                ]}
-                onPress={() => handleSelectTrackingType('reps')}
-              >
-                <Text style={styles.trackingTypeButtonText}>Reps</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.trackingTypeButton, 
-                  trackingType === 'time' && styles.trackingTypeButtonActive,
-                  { borderTopRightRadius: 8, borderBottomRightRadius: 8 }
-                ]}
-                onPress={() => handleSelectTrackingType('time')}
-              >
-                <Text style={styles.trackingTypeButtonText}>Time</Text>
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.formGroup}>
-              <Text style={styles.inputLabel}>Number of Sets</Text>
-              <TextInput
-                style={styles.input}
-                value={sets}
-                onChangeText={setSets}
-                keyboardType="numeric"
-              />
-            </View>
-            
-            <View style={styles.formGroup}>
-              <View style={styles.repsLabelRow}>
-                <Text style={styles.inputLabel}>Reps</Text>
-                <View style={styles.repsToggleContainer}>
-                  <TouchableOpacity
+            {console.log('Current isQuickAdd state:', isQuickAdd)}
+            {isQuickAdd ? (
+              <>
+                <View style={styles.trackingTypeContainer}>
+                  <TouchableOpacity 
                     style={[
-                      styles.repsToggleButton,
-                      isFixedReps && styles.repsToggleButtonActive,
+                      styles.trackingTypeButton, 
+                      trackingType === 'reps' && styles.trackingTypeButtonActive,
                       { borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }
                     ]}
-                    onPress={() => handleToggleRepsType(true)}
+                    onPress={() => handleSelectTrackingType('reps')}
                   >
-                    <Text style={styles.repsToggleButtonText}>Fixed</Text>
+                    <Text style={styles.trackingTypeButtonText}>Reps</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
+                  
+                  <TouchableOpacity 
                     style={[
-                      styles.repsToggleButton,
-                      !isFixedReps && styles.repsToggleButtonActive,
+                      styles.trackingTypeButton, 
+                      trackingType === 'time' && styles.trackingTypeButtonActive,
                       { borderTopRightRadius: 8, borderBottomRightRadius: 8 }
                     ]}
-                    onPress={() => handleToggleRepsType(false)}
+                    onPress={() => handleSelectTrackingType('time')}
                   >
-                    <Text style={styles.repsToggleButtonText}>Range</Text>
+                    <Text style={styles.trackingTypeButtonText}>Time</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
-              {isFixedReps ? (
-                <View style={styles.repsInputContainer}>
+                
+                <View style={styles.formGroup}>
+                  <Text style={styles.inputLabel}>Number of Sets</Text>
                   <TextInput
                     style={styles.input}
-                    value={reps}
-                    onChangeText={setReps}
+                    value={sets}
+                    onChangeText={setSets}
                     keyboardType="numeric"
-                    placeholder="12"
-                    placeholderTextColor="#666"
                   />
-                  <Text style={styles.inputUnit}>reps</Text>
                 </View>
-              ) : (
-                <View style={styles.repsRangeContainer}>
-                  <View style={styles.repsRangeInputContainer}>
+                
+                <View style={styles.formGroup}>
+                  <View style={styles.repsLabelRow}>
+                    <Text style={styles.inputLabel}>Reps</Text>
+                    <View style={styles.repsToggleContainer}>
+                      <TouchableOpacity
+                        style={[
+                          styles.repsToggleButton,
+                          isFixedReps && styles.repsToggleButtonActive,
+                          { borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }
+                        ]}
+                        onPress={() => handleToggleRepsType(true)}
+                      >
+                        <Text style={styles.repsToggleButtonText}>Fixed</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.repsToggleButton,
+                          !isFixedReps && styles.repsToggleButtonActive,
+                          { borderTopRightRadius: 8, borderBottomRightRadius: 8 }
+                        ]}
+                        onPress={() => handleToggleRepsType(false)}
+                      >
+                        <Text style={styles.repsToggleButtonText}>Range</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  {isFixedReps ? (
+                    <View style={styles.repsInputContainer}>
+                      <TextInput
+                        style={styles.input}
+                        value={reps}
+                        onChangeText={setReps}
+                        keyboardType="numeric"
+                        placeholder="12"
+                        placeholderTextColor="#666"
+                      />
+                      <Text style={styles.inputUnit}>reps</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.repsRangeContainer}>
+                      <View style={styles.repsRangeInputContainer}>
+                        <TextInput
+                          style={[styles.input, styles.rangeInput]}
+                          value={repsMin}
+                          onChangeText={setRepsMin}
+                          keyboardType="numeric"
+                          placeholder="8"
+                          placeholderTextColor="#666"
+                        />
+                        <Text style={styles.rangeSeparator}>-</Text>
+                        <TextInput
+                          style={[styles.input, styles.rangeInput]}
+                          value={repsMax}
+                          onChangeText={setRepsMax}
+                          keyboardType="numeric"
+                          placeholder="12"
+                          placeholderTextColor="#666"
+                        />
+                        <Text style={styles.inputUnit}>reps</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+                
+                <View style={styles.formGroup}>
+                  <Text style={styles.inputLabel}>Weight</Text>
+                  <View style={styles.weightInputContainer}>
                     <TextInput
-                      style={[styles.input, styles.rangeInput]}
-                      value={repsMin}
-                      onChangeText={setRepsMin}
-                      keyboardType="numeric"
-                      placeholder="8"
+                      style={styles.input}
+                      value={weight}
+                      onChangeText={setWeight}
+                      placeholder=""
                       placeholderTextColor="#666"
-                    />
-                    <Text style={styles.rangeSeparator}>-</Text>
-                    <TextInput
-                      style={[styles.input, styles.rangeInput]}
-                      value={repsMax}
-                      onChangeText={setRepsMax}
                       keyboardType="numeric"
-                      placeholder="12"
-                      placeholderTextColor="#666"
                     />
-                    <Text style={styles.inputUnit}>reps</Text>
+                    <Text style={styles.inputUnit}>{weightUnit}</Text>
                   </View>
                 </View>
-              )}
-            </View>
-            
-            <View style={styles.formGroup}>
-              <Text style={styles.inputLabel}>Weight</Text>
-              <View style={styles.weightInputContainer}>
-                <TextInput
-                  style={styles.input}
-                  value={weight}
-                  onChangeText={setWeight}
-                  placeholder=""
-                  placeholderTextColor="#666"
-                  keyboardType="numeric"
+              </>
+            ) : (
+              <View style={styles.customSetsContainer}>
+                {console.log('Rendering CustomSetsBuilder with sets:', customSets)}
+                <CustomSetsBuilder 
+                  customSets={customSets}
+                  onSetsChange={setCustomSets}
                 />
-                <Text style={styles.inputUnit}>{weightUnit}</Text>
               </View>
-            </View>
+            )}
             
             <View style={styles.footer}>
               <TouchableOpacity 
@@ -769,5 +862,10 @@ const styles = StyleSheet.create({
     color: '#999',
     fontSize: 18,
     marginHorizontal: 8,
+  },
+  // Custom Sets Container
+  customSetsContainer: {
+    marginBottom: 16,
+    minHeight: 200, // Ensure it has visible height
   },
 }); 
